@@ -1,15 +1,22 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 
 public class Food : MonoBehaviour {
 
-	void OnTriggerEnter(Collider other) {
-		Managers.EventManager.HandlePointScored();
-		System.Random rnd = new System.Random();
-		int x = rnd.Next(-5, 5);
-		int y = rnd.Next(-5, 5);
-		this.transform.position = new Vector3(x, y, 0);
+	void Start() {
+		repositionAwayFromSnake();
 	}
 
+	void OnTriggerEnter2D(Collider2D col) {
+		Managers.EventManager.HandlePointScored();
+		repositionAwayFromSnake();
+	}
+
+	private void repositionAwayFromSnake() {
+		while(true) {
+			Vector3 newPosition = Vector3Extensions.Random(-5, 5);
+			if (Vector2.Distance(newPosition, this.transform.position) < 5.5f) continue;
+			this.transform.position = newPosition;
+			return;
+		}
+	}
 }
