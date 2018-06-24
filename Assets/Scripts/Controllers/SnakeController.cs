@@ -7,88 +7,129 @@ using Managers;
 public class SnakeController : MonoBehaviour {
 	// Components
 	private Animator anim;
-	private Rigidbody2D rb2d;
-	private GameObject baseMiddle;
+	private BoxCollider2D headCollider;
 	private GameObject tail;
+	private SpriteRenderer spriteRenderer;
 
 	// Internals
-	private const float defaultSpeed = 10000f;
-	private float speed = defaultSpeed;
+	private float assetSize = 1.28f;
+	private float xDir;
+	private float yDir;
+	private KeyCode lastKeyPressed;
 
 	void Start() {
 		anim = GetComponent<Animator>();
-		rb2d = GetComponent<Rigidbody2D>();
-		
-		baseMiddle = GameObject.Find("Middle");
-		tail = GameObject.Find("Tail");
+		headCollider = GetComponent<BoxCollider2D>();
+		spriteRenderer = GetComponent<SpriteRenderer>();
+		tail = this.transform.parent.transform.Find("Tail").gameObject;
 
-		EventManager.OnPointScored += speedUp;
+		EventManager.OnPointScored += addBodySegment;
 
-		rb2d.AddForce(new Vector2(0, -1 * defaultSpeed * Time.fixedDeltaTime));
+		startSnakeMovement();
 	}
-	
-	void FixedUpdate() {
-		Vector3 headPreviousPosition =  this.transform.position;
-		Vector3 middlePreviousPosition =  baseMiddle.transform.position;
 
-		applyMovementForce();
-
-		Vector3 headCurrentPosition =  this.transform.position;
-		Vector3 middleCurrentPosition =  baseMiddle.transform.position;
-		followPreviousSegment(headPreviousPosition, headCurrentPosition, baseMiddle);
-		followPreviousSegment(middlePreviousPosition, middleCurrentPosition, tail);
-
-		// Inform animator of snake direction to trigger appropriate wiggle
-		anim.SetFloat("SnakeVelocityX", rb2d.velocity.x);
-		anim.SetFloat("SnakeVelocityY", rb2d.velocity.y);
+	void Update() {
+		// Every frame, check for inputs so we know which the last triggered key press was
+		if (isInputUp()) {
+			lastKeyPressed = KeyCode.UpArrow;
+		} else if (isInputDown()) {
+			lastKeyPressed = KeyCode.DownArrow;
+		} else if (isInputRight()) {
+			lastKeyPressed = KeyCode.RightArrow;
+		} else if (isInputLeft()) {
+			lastKeyPressed = KeyCode.LeftArrow;
+		}
 	}
 
 	void OnControllerColliderHit(ControllerColliderHit hit) {
-		if (hit.collider.name != "Cube") return;
 		EventManager.HandleSnakeDeath();
 		StartCoroutine(waitAndTriggerRespawn());
 	}
 
-	private void applyMovementForce() {
-		Vector2 force = Vector2.zero;
-		int rotation = 0;
+	private IEnumerator snakeMove() {
+		yield return new WaitForSeconds(0.2f);
 
-		if (isInputDown() && rb2d.IsTravellingHorizontally()) {
-			force = new Vector2(0, -1 * speed * Time.fixedDeltaTime);	
-			rotation = 0;
-		} else if (isInputUp() && rb2d.IsTravellingHorizontally()) {
-			force = new Vector2(0, 1 * speed * Time.fixedDeltaTime);
-			rotation = 180;
-		} else if (isInputLeft() && rb2d.IsTravellingVertically()) {
-			force = new Vector2(-1 * speed * Time.fixedDeltaTime, 0);
-			rotation = 270;
-		} else if (isInputRight() && rb2d.IsTravellingVertically()) {
-			force = new Vector2(1 * speed * Time.fixedDeltaTime, 0);
-			rotation = 90;
+		// If our last key press was valid (i.e not a 180deg turn), prepare our x and y from translate 
+		if (lastKeyPressed == KeyCode.UpArrow && yDir == 0) {
+			yDir = assetSize;
+			xDir = 0;
+		} else if (lastKeyPressed == KeyCode.DownArrow && yDir == 0) {
+			yDir = -assetSize;
+			xDir = 0;
+		} else if (lastKeyPressed == KeyCode.RightArrow && xDir == 0) {
+			xDir = assetSize;
+			yDir = 0;
+		} else if (lastKeyPressed == KeyCode.LeftArrow && xDir == 0) {
+			xDir = -assetSize;
+			yDir = 0;
+		} else {
+			// No valid key put was detected this update cycle, use previously assigned x and y
 		}
 
-		// If no input was entered this frame, the previously applied force will continue
-		// to operate unimpeded, as we have disabled drag/gravity.
-		if (force == Vector2.zero) return; 
+		// Keep a record of where the head was before this translate
+		Vector3 leadingSegmentPreviousPosition = this.transform.position;
 
-		rb2d.velocity = Vector2.zero;
-		rb2d.AddForce(force);
-		rb2d.MoveRotation(rotation);
+		// Translate the head according to x and y
+		this.transform.Translate(xDir, yDir, 0);
+
+		if (yDir == assetSize) {
+			spriteRenderer.flipY = true;
+		} else if (yDir == -assetSize) {
+			spriteRenderer.flipY = false;
+		}
+
+		// Before we move any body segments, first check for head=>segment collisions
+		if (headHasCollidedWithSegment()) {
+			EventManager.HandleSnakeDeath();
+			yield return null;
+		}
+
+		// Player hasn't died, let's update body segments accordingly
+		for (var i = 1; i < this.transform.parent.childCount; i++) {
+			Transform currentSegment = this.transform.parent.GetChild(i);
+			Vector3 currentSegmentPosition = currentSegment.position;
+			
+			// Update our current segment to the position of it's leading segment before it was transformed
+			currentSegment.transform.position = leadingSegmentPreviousPosition;
+
+			// Save the record of our current segments previous position for it's trailing segment 
+			leadingSegmentPreviousPosition = currentSegmentPosition;
+		}
+
+		// Inform the animator of our current direction
+		anim.SetFloat("SnakeVelocityX", xDir);
+		anim.SetFloat("SnakeVelocityY", yDir);
+
+		// Broadcast that we have successfully moved the snake
+		Managers.EventManager.HandleSnakeMove(headCollider.bounds);
+
+		// Recursively call snakeMove again so we continually update
+		StartCoroutine(snakeMove());
+
+		yield return null;
 	}
 
 	private IEnumerator waitAndTriggerRespawn() {
 		//hide
 		yield return new WaitForSeconds(0.3f);
 		//show
-		rb2d.transform.position = Vector3.zero; // Reset position to the center of the game
-		rb2d.MoveRotation(0); // Reset head to face down
-		speed = defaultSpeed;	
-		rb2d.AddForce(new Vector2(0, -1 * speed * Time.fixedDeltaTime));
+
+		startSnakeMovement();
+
 		yield return null;
 	}
 
-	private void speedUp() {
-		speed += defaultSpeed / 10f;
+	private void addBodySegment() {
+		Transform body = this.transform.parent.GetChild(1);
+		GameObject newBodySegment = Instantiate<GameObject>(body.gameObject);
+		newBodySegment.transform.parent = body.parent;
+		tail.transform.SetAsLastSibling();
+	}
+
+	private void startSnakeMovement() {
+		yDir = -assetSize;
+		xDir = 0;
+		StartCoroutine(snakeMove());
 	}
 
 	private bool isInputDown() {
@@ -107,10 +148,15 @@ public class SnakeController : MonoBehaviour {
 		return Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A);
 	}
 
-	private void followPreviousSegment(Vector3 leadingObjPreviousPosition, Vector3 leadingObjCurrentPosition, GameObject trailingObj) {
-		float moveX = leadingObjPreviousPosition.x - leadingObjCurrentPosition.x;
-		float moveY = leadingObjPreviousPosition.y - leadingObjCurrentPosition.y;
-		trailingObj.transform.Translate(moveX, moveY, 0); 
+	private bool headHasCollidedWithSegment() {
+		for (var i = 1; i < this.transform.parent.childCount; i++) { 
+			BoxCollider2D segmentCollider = this.transform.parent.GetChild(i).GetComponent<BoxCollider2D>();
+			if (headCollider.bounds.Intersects(segmentCollider.bounds)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
 
