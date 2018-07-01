@@ -2,21 +2,26 @@
 
 public class Food : MonoBehaviour {
 
-	BoxCollider2D col;
+	BoxCollider2D _col;
+
+	void Awake() {
+		_col = GetComponent<BoxCollider2D>();
+	}	
 
 	void Start() {
-		col = GetComponent<BoxCollider2D>();
 		repositionAwayFromSnake();
 
 		Managers.EventManager.OnSnakeMove += checkCollision;
+		Managers.EventManager.OnSnakeDeath += repositionAwayFromSnake;
 	}
 
-	void OnDestroy() {
+	void Destroy() {
 		Managers.EventManager.OnSnakeMove -= checkCollision;
+		Managers.EventManager.OnSnakeDeath -= repositionAwayFromSnake;
 	}
 
 	void checkCollision(Bounds b) {
-		if (col.bounds.Intersects(b)) {
+		if (_col.bounds.Intersects(b)) {
 			Managers.EventManager.HandlePointScored();
 			repositionAwayFromSnake();
 		}

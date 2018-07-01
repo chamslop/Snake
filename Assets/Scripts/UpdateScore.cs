@@ -5,30 +5,32 @@ using UnityEngine.UI;
 
 public class UpdateScore : MonoBehaviour {
 
-	private Text text;
-	private int score;
+	private Text _text;
+	private int _score;
 
-	void Start() {	
-		text = GetComponent<Text>();
-		
+	void Awake() {
+		_text = GetComponent<Text>();
+	}
+
+	void Start() {
 		Managers.EventManager.OnPointScored += pointScored;
 		Managers.EventManager.OnSnakeDeath += resetScore;
 
-		score = 0;
-		text.text = "Score: 0";
+		resetScore();
 	}
 
-	void OnDestroy() {
+	void Destroy() {
 		Managers.EventManager.OnPointScored -= pointScored;
+		Managers.EventManager.OnSnakeDeath -= resetScore;
 	}
 
 	private void pointScored() {
-		score++;
-		text.text = "Score: " + score;
+		_score++;
+		_text.text = "Score: " + _score;
 	}
 
 	private void resetScore() {
-		score = 0;
-		text.text = "Score: " + score;
+		_score = 0;
+		_text.text = "Score: 0";
 	}
 }
