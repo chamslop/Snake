@@ -20,11 +20,13 @@ public class SnakeController : MonoBehaviour {
 
 	// Sprites
 	private Sprite _bendSprite;
+	private Sprite _bendInvertedSprite;
 	private Sprite _straightBodySprite;
 	private Sprite _tailSprite;
 
 	// Consts
 	private string _bendSpriteName = "char_corner_01";
+	private string _bendInvertedSpriteName = "char_corner_02";
 	private string _straightBodySpriteName = "char_mid_01";
 	private string _tailSpriteName = "char_tail_01";
 
@@ -34,6 +36,7 @@ public class SnakeController : MonoBehaviour {
 		_tail = this.transform.parent.transform.Find("Tail").gameObject;
 
 		_bendSprite = Resources.Load<Sprite>(_bendSpriteName);
+		_bendInvertedSprite = Resources.Load<Sprite>(_bendInvertedSpriteName);
 		_straightBodySprite = Resources.Load<Sprite>(_straightBodySpriteName);
 		_tailSprite = Resources.Load<Sprite>(_tailSpriteName);
 	}
@@ -52,8 +55,8 @@ public class SnakeController : MonoBehaviour {
 		_lastKeyPressed = inputThisFrame != KeyCode.None ? inputThisFrame : _lastKeyPressed;
 	}
 
-	// snakeMove is called recursively, at the interval of 'speed', and is responsible for moving the head,
-	// and then getting all of the body components and tail to follow in the typicall snake fashion.
+	// snakeMove is called recursively, at the interval of '_speed', and is responsible for moving the head,
+	// and then getting all of the body components and tail to follow in the typical snake fashion.
 	private IEnumerator snakeMove() {
 		yield return new WaitForSeconds(_speed);
 
@@ -98,8 +101,7 @@ public class SnakeController : MonoBehaviour {
 				Transform leadingSegment = this.transform.parent.GetChild(i-1);
 
 				// Check if currentSegment is a bend that should be straightened
-				if (currentSegmentSpriteRenderer.sprite.name == _bendSpriteName && 
-					!shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
+				if (isBendSprite(currentSegmentSpriteRenderer) && !shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
 					currentSegmentSpriteRenderer.sprite = _straightBodySprite;
 				}
 
@@ -107,8 +109,16 @@ public class SnakeController : MonoBehaviour {
 				if (shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
 					currentSegment.rotation = leadingSegmentPreviousRotation;
 
-					if (currentSegmentSpriteRenderer.sprite.name != _tailSpriteName) {
+					if (!isTailSprite(currentSegmentSpriteRenderer)) {
+						Transform trailingSegment = this.transform.parent.GetChild(i+1);
 						currentSegmentSpriteRenderer.sprite = _bendSprite;
+
+						// If we are turning right, we need to use the inverted bend sprite
+						if (isTurningRight(currentSegmentPosition, trailingSegment.position, leadingSegment.position)) {
+							if (currentSegmentSpriteRenderer.sprite.name == _bendSpriteName) {
+								currentSegmentSpriteRenderer.sprite = _bendInvertedSprite;
+							}
+						}
 					}
 				}
 
@@ -188,12 +198,31 @@ public class SnakeController : MonoBehaviour {
 		return teleportXDif != leadingSegmentXDif && teleportYDif != leadingSegmentYDif;
 	}
 
-	private Vector3 directionOfTravel(Vector3 current, Vector3 target) {
-		return target - current;
+	private bool isTravellingDown(Vector3 cur, Vector3 prev) { return prev.y > cur.y; }
+	private bool isTravellingUp(Vector3 cur, Vector3 prev) { return prev.y < cur.y; }
+	private bool isTravellingRight(Vector3 cur, Vector3 prev) { return prev.x < cur.x; }
+	private bool isTravellingLeft(Vector3 cur, Vector3 prev) { return prev.x > cur.x; }
+
+	private bool isTurningDown(Vector3 cur, Vector3 tar) { return tar.y < cur.y; }
+	private bool isTurningUp(Vector3 cur, Vector3 tar) { return tar.y > cur.y; }
+
+	private bool isTurningRight(Vector3 cur, Vector3 prev, Vector3 tar) {
+		if (isTravellingDown(cur, prev) && tar.x > cur.x) {
+			return true;
+		} else if (isTravellingRight(cur, prev) && tar.y > cur.y) {
+			return true;
+		} else if (isTravellingUp(cur, prev) && tar.x < cur.x) {
+			return true;
+		} else if (isTravellingLeft(cur, prev) && tar.y < cur.y) {
+			return true;
+		}
+
+		return false;
 	}
 
-	private Vector3 previousDirection(Vector3 current, Vector3 previous) {
-		return previous - current;
-	}
+	private bool isTailSprite(SpriteRenderer sr) { return sr.sprite.name == _tailSpriteName; }
 
+	private bool isBendSprite(SpriteRenderer sr) { 
+		return sr.sprite.name == _bendSpriteName || sr.sprite.name == _bendInvertedSpriteName ;
+	}
 }
