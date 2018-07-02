@@ -109,17 +109,25 @@ public class SnakeController : MonoBehaviour {
 				if (shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
 					currentSegment.rotation = leadingSegmentPreviousRotation;
 
-					if (!isTailSprite(currentSegmentSpriteRenderer)) {
-						Transform trailingSegment = this.transform.parent.GetChild(i+1);
+					// If we are the tail, become a tail bend
+					if (isTailSprite(currentSegmentSpriteRenderer)) {
+						// currentSegmentSpriteRenderer.sprite = _bendSprite;
+					} else {
+						// Otherwise, just become a regular bend
 						currentSegmentSpriteRenderer.sprite = _bendSprite;
 
-						// If we are turning right, we need to use the inverted bend sprite
-						if (isTurningRight(currentSegmentPosition, trailingSegment.position, leadingSegment.position)) {
-							if (currentSegmentSpriteRenderer.sprite.name == _bendSpriteName) {
-								currentSegmentSpriteRenderer.sprite = _bendInvertedSprite;
-							}
+						// If we are turning right, or doing a very tight turn, we need to use the inverted bend sprite
+						Transform trailingSegment = this.transform.parent.GetChild(i+1);
+						bool turningRight = isTurningRight(currentSegmentPosition, trailingSegment.position, leadingSegment.position);
+						bool isNotTail = i != 1;
+						bool leadingSegmentIsBend = isNotTail && isBendSprite(leadingSegment.GetComponent<SpriteRenderer>());
+						
+						if (turningRight && !leadingSegmentIsBend || !turningRight && leadingSegmentIsBend) {
+							currentSegmentSpriteRenderer.sprite = _bendInvertedSprite;
 						}
 					}
+
+					
 				}
 
 				// Update our current segment to the position of it's leading segment before it was transformed
