@@ -85,6 +85,7 @@ public class SnakeController : MonoBehaviour {
 		// Keep a record of where the head was/it's rotate before this translate
 		Vector3 leadingSegmentPreviousPosition = this.transform.position;
 		Quaternion leadingSegmentPreviousRotation = _spriteHead.transform.rotation;
+		Sprite leadingSegmentPreviousSprite = null;
 
 		// Translate the head according to x and y
 		this.transform.Translate(_xDir, _yDir, 0);
@@ -96,48 +97,35 @@ public class SnakeController : MonoBehaviour {
 			// Player hasn't died, let's update body segments accordingly
 			for (var i = 1; i < this.transform.parent.childCount; i++) {
 				Transform currentSegment = this.transform.parent.GetChild(i);
+
+				// Keep a reference to our current segments position, sprite and rotation before changes.
 				Vector3 currentSegmentPosition = currentSegment.position;
-				SpriteRenderer currentSegmentSpriteRenderer = currentSegment.GetComponent<SpriteRenderer>();
-				Transform leadingSegment = this.transform.parent.GetChild(i-1);
+				Quaternion currentSegmentRotation = currentSegment.rotation;
+				Sprite currentSegmentSprite = currentSegment.GetComponent<SpriteRenderer>().sprite;
 
-				// Check if currentSegment is a bend that should be straightened
-				if (isBendSprite(currentSegmentSpriteRenderer) && !shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
-					currentSegmentSpriteRenderer.sprite = _straightBodySprite;
-				}
-
-				// Before moving our segment, see if we should rotate
-				if (shouldRotate(currentSegment, leadingSegment, leadingSegmentPreviousPosition)) {
+				// Before we move anything, let's calculate rotations and sprites
+				if (i == 1) {
+					//The second segment is key, once it is set correctly, all subsequent pieces can just copy from it
+					adjustSecondSegment(currentSegment, leadingSegmentPreviousPosition, leadingSegmentPreviousRotation);
+				} else if (i < this.transform.parent.childCount - 1) {
+					// This segment is somewhere behind the second segment. It can safely just copy both the
+					// sprite and the rotation from it's leading segment before being moved
 					currentSegment.rotation = leadingSegmentPreviousRotation;
-
-					// If we are the tail, become a tail bend
-					if (isTailSprite(currentSegmentSpriteRenderer)) {
-						// currentSegmentSpriteRenderer.sprite = _bendSprite;
-					} else {
-						// Otherwise, just become a regular bend
-						currentSegmentSpriteRenderer.sprite = _bendSprite;
-
-						// If we are turning right, or doing a very tight turn, we need to use the inverted bend sprite
-						Transform trailingSegment = this.transform.parent.GetChild(i+1);
-						bool turningRight = isTurningRight(currentSegmentPosition, trailingSegment.position, leadingSegment.position);
-						bool isNotTail = i != 1;
-						bool leadingSegmentIsBend = isNotTail && isBendSprite(leadingSegment.GetComponent<SpriteRenderer>());
-						
-						if (turningRight && !leadingSegmentIsBend || !turningRight && leadingSegmentIsBend) {
-							currentSegmentSpriteRenderer.sprite = _bendInvertedSprite;
-						}
-					}
-
-					
+					currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
+				} else {
+					// The tail only needs to copy the rotation of the leading segment
+					currentSegment.rotation = leadingSegmentPreviousRotation;
 				}
 
-				// Update our current segment to the position of it's leading segment before it was transformed
+				// Now we update our current segment to the position of it's leading segment before it was transformed
 				currentSegment.transform.position = leadingSegmentPreviousPosition;
 
 				// Save the record of our current segments previous position/rotation for it's trailing segment to use 
 				leadingSegmentPreviousPosition = currentSegmentPosition;
-				leadingSegmentPreviousRotation = currentSegment.rotation;
+				leadingSegmentPreviousRotation = currentSegmentRotation;
+				leadingSegmentPreviousSprite = currentSegmentSprite;
 			}
-
+				
 			// Inform the animator of our current direction
 			// _anim.SetFloat("SnakeVelocityX", _xDir);
 			// _anim.SetFloat("SnakeVelocityY", _yDir);
@@ -194,38 +182,68 @@ public class SnakeController : MonoBehaviour {
 		return false;
 	}
 
+
+	// adjustSecondSegment calculates the rotation and sprite for the second segment of the snake.
+	// These values can all be calculated by using the current head position as well as the previous rotation/
+	// position that the head was previously in. This function should be called AFTER the head has been translated,
+	// but BEFORE the second segment has been translated. This means the position/rotation of the second segment 
+	// at this point can be considered 'outdated', while the previous head position is the position we will be 
+	// moving into after we have calculated our rotation/sprite.
+	private void adjustSecondSegment(Transform cur, Vector3 previousHeadPosition, Quaternion previousHeadRotation) {
+		SpriteRenderer currentSegmentSpriteRenderer = cur.GetComponent<SpriteRenderer>();
+		Transform head = this.transform.parent.GetChild(0);
+
+		bool isBend = isBendSprite(currentSegmentSpriteRenderer);
+		bool rotate = shouldRotate(head, previousHeadPosition, cur);
+		// Check if segment is a bend that should be straightened
+		if (isBend && !rotate) {
+			currentSegmentSpriteRenderer.sprite = _straightBodySprite;
+		} else if (rotate) {
+			// We are shouldn't be straight, that means we turned and need to swap sprites and rotate
+			cur.rotation = previousHeadRotation;
+
+			// If we are turning left, we need to use the inverted bend sprite
+			if (isLeftHandTurn(head.position, previousHeadPosition, cur.position)) {
+				currentSegmentSpriteRenderer.sprite = _bendInvertedSprite;
+			} else {
+				currentSegmentSpriteRenderer.sprite = _bendSprite;
+			}
+		}
+	}
+
 	// shouldRotate determines whether or not the current segment should be rotated BEFORE it has teleported.
 	// We need to rotate before because we need to compare if the leading segment moved in the same direction
 	// we are going to move in. If not, that means a change of direction occured, and we need to rotate accordingly.
-	private bool shouldRotate(Transform currentSegment, Transform leadingSegment, Vector3 leadingSegmentPrev) {
-		float teleportXDif = leadingSegmentPrev.x - currentSegment.position.x;
-		float teleportYDif = leadingSegmentPrev.y - currentSegment.position.y;
-		float leadingSegmentXDif = leadingSegment.position.x - leadingSegmentPrev.x;
-		float leadingSegmentYDif = leadingSegment.position.y - leadingSegmentPrev.y;
+	private bool shouldRotate(Transform head, Vector3 headPrevious, Transform cur) {
+		// Next move dif represents the difference where the current segment will move to next movement phase
+		float nextMoveXDif = headPrevious.x - cur.position.x;
+		float nextMoveYDif = headPrevious.y - cur.position.y;
 
-		return teleportXDif != leadingSegmentXDif && teleportYDif != leadingSegmentYDif;
+		// Head dif represents the difference the head travelled during it's last movement
+		float headXDif = head.position.x - headPrevious.x;
+		float headYDif = head.position.y - headPrevious.y;
+
+		return nextMoveXDif != headXDif && nextMoveYDif != headYDif;
 	}
 
-	private bool isTravellingDown(Vector3 cur, Vector3 prev) { return prev.y > cur.y; }
-	private bool isTravellingUp(Vector3 cur, Vector3 prev) { return prev.y < cur.y; }
-	private bool isTravellingRight(Vector3 cur, Vector3 prev) { return prev.x < cur.x; }
-	private bool isTravellingLeft(Vector3 cur, Vector3 prev) { return prev.x > cur.x; }
+	// These functions determine the direction this area of the snake was previous travelling by checking
+	// the unupdated location of the trailing segment against the current. It also ensuring only 1 direction
+	// of change is present, use the diagonal movement funcs to check for those patterns of movement.
+	private bool wasTravellingDown(Vector3 headPrev, Vector3 cur) { return cur.y > headPrev.y && cur.x == headPrev.x; }
+	private bool wasTravellingUp(Vector3 headPrev, Vector3 cur) { return cur.y < headPrev.y && cur.x == headPrev.x; }
+	private bool wasTravellingRight(Vector3 headPrev, Vector3 cur) { return cur.x < headPrev.x && cur.y == headPrev.y; }
+	private bool wasTravellingLeft(Vector3 headPrev, Vector3 cur) { return cur.x > headPrev.x && cur.y == headPrev.y; }
 
-	private bool isTurningDown(Vector3 cur, Vector3 tar) { return tar.y < cur.y; }
-	private bool isTurningUp(Vector3 cur, Vector3 tar) { return tar.y > cur.y; }
+	private bool isTurningDown(Vector3 head, Vector3 headPrev) { return head.y < headPrev.y && head.x == headPrev.x; }
+	private bool isTurningUp(Vector3 head, Vector3 headPrev) { return head.y > headPrev.y && head.x == headPrev.x; }
+	private bool isTurningLeft(Vector3 head, Vector3 headPrev) { return head.x < headPrev.x && head.y == headPrev.y; }
+	private bool isTurningRight(Vector3 head, Vector3 headPrev) { return head.x > headPrev.x && head.y == headPrev.y; }
 
-	private bool isTurningRight(Vector3 cur, Vector3 prev, Vector3 tar) {
-		if (isTravellingDown(cur, prev) && tar.x > cur.x) {
-			return true;
-		} else if (isTravellingRight(cur, prev) && tar.y > cur.y) {
-			return true;
-		} else if (isTravellingUp(cur, prev) && tar.x < cur.x) {
-			return true;
-		} else if (isTravellingLeft(cur, prev) && tar.y < cur.y) {
-			return true;
-		}
-
-		return false;
+	private bool isLeftHandTurn(Vector3 head, Vector3 headPrev, Vector3 cur) {
+		return (wasTravellingDown(headPrev, cur) && isTurningRight(head, headPrev)) || 
+					 (wasTravellingRight(headPrev, cur) && isTurningUp(head, headPrev))   ||
+					 (wasTravellingUp(headPrev, cur) && isTurningLeft(head, headPrev))    ||
+					 (wasTravellingLeft(headPrev, cur) && isTurningDown(head, headPrev));
 	}
 
 	private bool isTailSprite(SpriteRenderer sr) { return sr.sprite.name == _tailSpriteName; }
@@ -234,3 +252,4 @@ public class SnakeController : MonoBehaviour {
 		return sr.sprite.name == _bendSpriteName || sr.sprite.name == _bendInvertedSpriteName ;
 	}
 }
+
