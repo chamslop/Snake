@@ -11,13 +11,6 @@ public class SnakeController : MonoBehaviour {
 	private Transform _spriteHead;
 	private GameObject _tail;
 
-	// Internals
-	private float _assetSize = 1.28f;
-	private float _xDir;
-	private float _yDir;
-	private KeyCode _lastKeyPressed;
-	private float _speed = 0.2f; // Time delay between snakeMove calls
-
 	// Sprites
 	private Sprite _bendSprite;
 	private Sprite _bendInvertedSprite;
@@ -25,10 +18,18 @@ public class SnakeController : MonoBehaviour {
 	private Sprite _tailSprite;
 
 	// Consts
-	private string _bendSpriteName = "char_corner_01";
+	private string _bendSpriteName         = "char_corner_01";
 	private string _bendInvertedSpriteName = "char_corner_02";
 	private string _straightBodySpriteName = "char_mid_01";
-	private string _tailSpriteName = "char_tail_01";
+	private string _tailSpriteName         = "char_tail_01";
+
+	// Internals
+	private float _assetSize = 1.28f;
+	private float _xDir;
+	private float _yDir;
+	private KeyCode _lastKeyPressed;
+	private float _speed = 0.2f;          // Time delay between snakeMove calls
+	private bool _addBodySegment = false; // Should we add a body part to the snake during next movement?
 
 	void Awake() {
 		_headCollider = GetComponent<BoxCollider2D>();
@@ -42,7 +43,7 @@ public class SnakeController : MonoBehaviour {
 	}
 
 	void Start() {
-		EventManager.OnPointScored += addBodySegment;
+		EventManager.OnPointScored += queueAddBodySegment;
 		EventManager.OnPointScored += speedUp;
 		EventManager.OnSnakeDeath += resetSnake;
 
@@ -60,27 +61,8 @@ public class SnakeController : MonoBehaviour {
 	private IEnumerator snakeMove() {
 		yield return new WaitForSeconds(_speed);
 
-		// If our last key press was valid (i.e not a 180deg turn), prepare our x and y for translation
-		// We also want to rotate the head at this point 
-		if (_lastKeyPressed == KeyCode.UpArrow && _yDir == 0) {
-			_spriteHead.rotation = new Quaternion(0, 0, 180, 0);
-			_yDir = _assetSize;
-			_xDir = 0;
-		} else if (_lastKeyPressed == KeyCode.DownArrow && _yDir == 0) {
-			_spriteHead.rotation = new Quaternion(0, 0, 0, 0);
-			_yDir = -_assetSize;
-			_xDir = 0;
-		} else if (_lastKeyPressed == KeyCode.RightArrow && _xDir == 0) {
-			_spriteHead.Rotate(0, 0, (int) _yDir * -90f, Space.Self);
-			_xDir = _assetSize;
-			_yDir = 0;
-		} else if (_lastKeyPressed == KeyCode.LeftArrow && _xDir == 0) {
-			_spriteHead.Rotate(0, 0, (int) _yDir * 90f, Space.Self);
-			_xDir = -_assetSize;
-			_yDir = 0;
-		} else {
-			// No valid key put was detected this update cycle, use previously assigned x and y
-		}
+		// Update _xDir and _yDir for translation, as well as rotate our head according to last key pressed
+		calculateHeadTranslation();
 
 		// Keep a record of where the head was/it's rotate before this translate
 		Vector3 leadingSegmentPreviousPosition = this.transform.position;
@@ -89,7 +71,7 @@ public class SnakeController : MonoBehaviour {
 
 		// Translate the head according to x and y
 		this.transform.Translate(_xDir, _yDir, 0);
-
+		
 		// Before we move any body segments, first check for head => segment collisions
 		if (checkHeadCollision()) {
 			EventManager.HandleSnakeDeath();
@@ -98,7 +80,7 @@ public class SnakeController : MonoBehaviour {
 			for (var i = 1; i < this.transform.parent.childCount; i++) {
 				Transform currentSegment = this.transform.parent.GetChild(i);
 
-				// Keep a reference to our current segments position, sprite and rotation before changes.
+				// Keep a reference to our current segments position, sprite and rotation before changes
 				Vector3 currentSegmentPosition = currentSegment.position;
 				Quaternion currentSegmentRotation = currentSegment.rotation;
 				Sprite currentSegmentSprite = currentSegment.GetComponent<SpriteRenderer>().sprite;
@@ -113,8 +95,22 @@ public class SnakeController : MonoBehaviour {
 					currentSegment.rotation = leadingSegmentPreviousRotation;
 					currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
 				} else {
-					// The tail only needs to copy the rotation of the leading segment
+					// We are at the tail. Either don't move (because a new segment is filling the space infront of us)
+					// or move forward as expected (because the player didn't gain a point this movement phase)
+					if (_addBodySegment) {
+						addBodySegment();
+
+						// Update current segment to be our newly added piece. We will update it's location to be where
+						// we expected the tail to move to
+						currentSegment = this.transform.parent.GetChild(i);
+
+						// The newly added piece might need to be a bend
+						currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
+					}
+
 					currentSegment.rotation = leadingSegmentPreviousRotation;
+
+					// Now, current segment is either the tail or the newly added body piece, update it's position
 				}
 
 				// Now we update our current segment to the position of it's leading segment before it was transformed
@@ -140,33 +136,31 @@ public class SnakeController : MonoBehaviour {
 		yield return null;
 	}
 
-	private void resetSnake() {
-		StartCoroutine(waitAndTriggerRespawn());
-		Destroy(this.transform.parent.gameObject);
-	}
-
-	private IEnumerator waitAndTriggerRespawn() {
-		yield return new WaitForSeconds(1f);
-		yield return null;
-	}
-
-	private void addBodySegment() {
-		Transform body = this.transform.parent.GetChild(this.transform.parent.childCount - 1);
-		GameObject newBodySegment = Instantiate<GameObject>(body.gameObject);
-		newBodySegment.GetComponent<SpriteRenderer>().sprite = _straightBodySprite;
-		newBodySegment.transform.parent = body.parent;
-
-		_tail.transform.SetAsLastSibling();
-	}
-
-	private void speedUp() {
-		_speed -= (_speed/30);
-	}
-
-	private void startSnakeMovement() {
-		_yDir = -_assetSize;
-		_xDir = 0;
-		StartCoroutine(snakeMove());
+	// calculateHeadTranslation checks  our last key press was valid (i.e not a 180deg turn), 
+	// and calculates the x and y we need to apply for our head's translation this movement phase.
+	// We update properties so that we can cross reference previously set values (firstly so we can check
+	// for 'about turns', and secondly so if no input was registered, we can apply the same movement again).
+	// We also want to rotate the head at this point.
+	private void calculateHeadTranslation() {
+		if (_lastKeyPressed == KeyCode.UpArrow && _yDir == 0) {
+			_spriteHead.rotation = new Quaternion(0, 0, 180, 0);
+			_yDir = _assetSize;
+			_xDir = 0;
+		} else if (_lastKeyPressed == KeyCode.DownArrow && _yDir == 0) {
+			_spriteHead.rotation = new Quaternion(0, 0, 0, 0);
+			_yDir = -_assetSize;
+			_xDir = 0;
+		} else if (_lastKeyPressed == KeyCode.RightArrow && _xDir == 0) {
+			_spriteHead.Rotate(0, 0, (int) _yDir * -90f, Space.Self);
+			_xDir = _assetSize;
+			_yDir = 0;
+		} else if (_lastKeyPressed == KeyCode.LeftArrow && _xDir == 0) {
+			_spriteHead.Rotate(0, 0, (int) _yDir * 90f, Space.Self);
+			_xDir = -_assetSize;
+			_yDir = 0;
+		} else {
+			// No valid key put was detected this update cycle, use previously assigned x and y
+		}
 	}
 
 	// checkHeadCollision checks if the player has 'died' by running the head into a body component,
@@ -181,7 +175,6 @@ public class SnakeController : MonoBehaviour {
 
 		return false;
 	}
-
 
 	// adjustSecondSegment calculates the rotation and sprite for the second segment of the snake.
 	// These values can all be calculated by using the current head position as well as the previous rotation/
@@ -229,16 +222,18 @@ public class SnakeController : MonoBehaviour {
 	// These functions determine the direction this area of the snake was previous travelling by checking
 	// the unupdated location of the trailing segment against the current. It also ensuring only 1 direction
 	// of change is present, use the diagonal movement funcs to check for those patterns of movement.
-	private bool wasTravellingDown(Vector3 headPrev, Vector3 cur) { return cur.y > headPrev.y && cur.x == headPrev.x; }
-	private bool wasTravellingUp(Vector3 headPrev, Vector3 cur) { return cur.y < headPrev.y && cur.x == headPrev.x; }
-	private bool wasTravellingRight(Vector3 headPrev, Vector3 cur) { return cur.x < headPrev.x && cur.y == headPrev.y; }
-	private bool wasTravellingLeft(Vector3 headPrev, Vector3 cur) { return cur.x > headPrev.x && cur.y == headPrev.y; }
+	private bool wasTravellingDown(Vector3 headPrev, Vector3 cur) => cur.y > headPrev.y && cur.x == headPrev.x;
+	private bool wasTravellingUp(Vector3 headPrev, Vector3 cur) => cur.y < headPrev.y && cur.x == headPrev.x;
+	private bool wasTravellingRight(Vector3 headPrev, Vector3 cur) => cur.x < headPrev.x && cur.y == headPrev.y;
+	private bool wasTravellingLeft(Vector3 headPrev, Vector3 cur) => cur.x > headPrev.x && cur.y == headPrev.y;
 
-	private bool isTurningDown(Vector3 head, Vector3 headPrev) { return head.y < headPrev.y && head.x == headPrev.x; }
-	private bool isTurningUp(Vector3 head, Vector3 headPrev) { return head.y > headPrev.y && head.x == headPrev.x; }
-	private bool isTurningLeft(Vector3 head, Vector3 headPrev) { return head.x < headPrev.x && head.y == headPrev.y; }
-	private bool isTurningRight(Vector3 head, Vector3 headPrev) { return head.x > headPrev.x && head.y == headPrev.y; }
+	private bool isTurningDown(Vector3 head, Vector3 headPrev) => head.y < headPrev.y && head.x == headPrev.x;
+	private bool isTurningUp(Vector3 head, Vector3 headPrev) => head.y > headPrev.y && head.x == headPrev.x;
+	private bool isTurningLeft(Vector3 head, Vector3 headPrev) => head.x < headPrev.x && head.y == headPrev.y;
+	private bool isTurningRight(Vector3 head, Vector3 headPrev) => head.x > headPrev.x && head.y == headPrev.y;
 
+	// isLeftHandTurn determines if the snake is turning left according to it's current direction (not the key
+	// press!). For example, if the snake is travelling downwards, 'left' is actually 'right'. 
 	private bool isLeftHandTurn(Vector3 head, Vector3 headPrev, Vector3 cur) {
 		return (wasTravellingDown(headPrev, cur) && isTurningRight(head, headPrev)) || 
 					 (wasTravellingRight(headPrev, cur) && isTurningUp(head, headPrev))   ||
@@ -246,10 +241,47 @@ public class SnakeController : MonoBehaviour {
 					 (wasTravellingLeft(headPrev, cur) && isTurningDown(head, headPrev));
 	}
 
-	private bool isTailSprite(SpriteRenderer sr) { return sr.sprite.name == _tailSpriteName; }
+	private bool isTailSprite(SpriteRenderer sr) => sr.sprite.name == _tailSpriteName;
+	private bool isInvertedBendSprite(SpriteRenderer sr) => sr.sprite.name == _bendInvertedSpriteName;
+	private bool isBendSprite(SpriteRenderer sr) => sr.sprite.name == _bendSpriteName || isInvertedBendSprite(sr);
 
-	private bool isBendSprite(SpriteRenderer sr) { 
-		return sr.sprite.name == _bendSpriteName || sr.sprite.name == _bendInvertedSpriteName ;
+	// queueAddBodySegment sets us up to add a body segment to the snake during the next movement phase.
+	// We can't do it outside of movement or the additional piece will be janky.
+	private void queueAddBodySegment() {
+		_addBodySegment = true;
+	}
+
+	// addBodySegment actually adds the required body segment to the snake and should be called during movement
+	// updates at the point just before the tail moves.
+	private void addBodySegment() {
+		Transform currentFinalBodySegment = this.transform.parent.GetChild(this.transform.parent.childCount - 1);
+		GameObject newBodySegment = Instantiate<GameObject>(currentFinalBodySegment.gameObject);
+		newBodySegment.GetComponent<SpriteRenderer>().sprite = _straightBodySprite;
+		newBodySegment.transform.parent = currentFinalBodySegment.parent;
+
+		_tail.transform.SetAsLastSibling();
+
+		// Reset until next time a point is scored
+		_addBodySegment = false;
+	}
+
+	private void resetSnake() {
+		StartCoroutine(waitAndTriggerRespawn());
+		Destroy(this.transform.parent.gameObject);
+	}
+
+	private IEnumerator waitAndTriggerRespawn() {
+		yield return new WaitForSeconds(5f);
+		yield return null;
+	}
+	
+	// speedUp reduces the time between movement updates, giving the illusion the snake is speeding up.
+	private void speedUp() => _speed -= (_speed/30);
+
+	private void startSnakeMovement() {
+		_yDir = -_assetSize;
+		_xDir = 0;
+		StartCoroutine(snakeMove());
 	}
 }
 

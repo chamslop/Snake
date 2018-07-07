@@ -6,9 +6,7 @@ namespace Managers {
   // A GameObject can register a delegate to be handled inside Start/constructor and should 
   // deregister any delegates inside OnDestroy/deconstructor to prevent memory leaks.
   public static class EventManager {
-    // SnakeMove
-    // WHEN:
-    // - Snake head moves
+
     public delegate void SnakeMove(Bounds b);
     public static event SnakeMove OnSnakeMove;
 
@@ -17,10 +15,6 @@ namespace Managers {
       OnSnakeMove(b);
     }
 
-    // SnakeDeath
-    // WHEN:
-    // - Snake collides with a wall
-    // - Snake collides with itself
     public delegate void SnakeDeath();
     public static event SnakeDeath OnSnakeDeath;
 
@@ -29,9 +23,6 @@ namespace Managers {
       OnSnakeDeath();
     }
 
-    // PointScore
-    // WHEN:
-    // - Snake collides with a piece of food
     public delegate void PointScore();
     public static event PointScore OnPointScored;
 
