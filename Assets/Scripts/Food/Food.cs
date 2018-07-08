@@ -6,13 +6,13 @@ public class Food : MonoBehaviour {
 
 	void Awake() {
 		_col = GetComponent<BoxCollider2D>();
+
+		Managers.EventManager.OnSnakeMove += checkCollision;
+		Managers.EventManager.OnSnakeDeath += repositionAwayFromSnake;
 	}	
 
 	void Start() {
 		repositionAwayFromSnake();
-
-		Managers.EventManager.OnSnakeMove += checkCollision;
-		Managers.EventManager.OnSnakeDeath += repositionAwayFromSnake;
 	}
 
 	void Destroy() {

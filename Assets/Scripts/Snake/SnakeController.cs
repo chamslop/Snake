@@ -10,6 +10,7 @@ using Managers;
 public class SnakeController : MonoBehaviour {
 	// Components
 	private BoxCollider2D _headCollider;
+	private EdgeCollider2D _edgeCollider;
 	private Transform _head;
 	private GameObject _tail;
 
@@ -29,25 +30,28 @@ public class SnakeController : MonoBehaviour {
 	// Internals
 	private float _xDir;
 	private float _yDir;
+	private float _speed = _startingSpeed;    // Time delay between snakeMove calls
+	private bool _addBodySegment = false;     // Should we add a body part to the snake during next movement?
+	private bool _shouldTeleportHead = false; // Should we teleport the head across the map during next movement?
+	private int _scoresSinceSegmentAdd = 0;   // We only increase the body length every 3 foods
 	private KeyCode _lastKeyPressed;
-	private float _speed = _startingSpeed;  // Time delay between snakeMove calls
-	private bool _addBodySegment = false;   // Should we add a body part to the snake during next movement?
-	private int _scoresSinceSegmentAdd = 0; // We only increase the body length every 3 foods
 
 	void Awake() {
 		_headCollider = GetComponent<BoxCollider2D>();
+		_edgeCollider = GetComponent<EdgeCollider2D>();
 		_head = this.transform.Find("Head Sprite");
 		_tail = this.transform.parent.transform.Find("Tail").gameObject;
 
 		_bendSprite = Resources.Load<Sprite>(_bendSpriteName);
 		_bendInvertedSprite = Resources.Load<Sprite>(_bendInvertedSpriteName);
 		_straightBodySprite = Resources.Load<Sprite>(_straightBodySpriteName);
+
+		EventManager.OnPointScored += queueAddBodySegment;
+		EventManager.OnPointScored += speedUp;
+		EventManager.OnSnakeHeadInvisible += prepareTeleportHead;
 	}
 
 	void Start() {
-		EventManager.OnPointScored += queueAddBodySegment;
-		EventManager.OnPointScored += speedUp;
-
 		startSnakeMovement();
 	}
 
@@ -64,16 +68,26 @@ public class SnakeController : MonoBehaviour {
 	private IEnumerator snakeMove() {
 		yield return new WaitForSeconds(_speed);
 
-		// Update _xDir and _yDir for head translation, as well as rotate our head according to last key pressed
-		calculateHeadTranslation();
-
 		// Keep a record of where the head was and it's rotate before we perform the translate
-		Vector3 leadingSegmentPreviousPosition = this.transform.position;
-		Quaternion leadingSegmentPreviousRotation = _head.rotation;
+		Vector3 leadingSegmentPreviousPosition = Vector3.zero;
+		Quaternion leadingSegmentPreviousRotation = Quaternion.Euler(0, 0, 0); 
 		Sprite leadingSegmentPreviousSprite = null;
 
-		// Translate the head according to x and y
-		this.transform.Translate(_xDir, _yDir, 0);
+		if (_shouldTeleportHead) {
+			leadingSegmentPreviousPosition = this.transform.position;
+			leadingSegmentPreviousRotation =  _head.rotation;
+
+			teleportHead();
+		} else {
+			// Update _xDir and _yDir for head translation, as well as rotate our head according to last key pressed
+			calculateHeadTranslation();
+
+			leadingSegmentPreviousPosition = this.transform.position;
+			leadingSegmentPreviousRotation =  _head.rotation;
+
+			// Translate the head according to x and y
+			this.transform.Translate(_xDir, _yDir, 0);
+		}
 
 		// Regardless of if the player has died update body segments accordingly
 		for (var i = 1; i < this.transform.parent.childCount; i++) {
@@ -139,6 +153,9 @@ public class SnakeController : MonoBehaviour {
 	// for 'about turns', and secondly so if no input was registered, we can apply the same movement again).
 	// We also want to rotate the head at this point.
 	private void calculateHeadTranslation() {
+		// Don't try and move the snake in a new direction if it is currently undergoing a teleport
+		if (_shouldTeleportHead) return;
+
 		if (_lastKeyPressed == KeyCode.UpArrow && _yDir == 0) {
 			_head.rotation = new Quaternion(0, 0, 180, 0);
 			_yDir = _assetSize;
@@ -185,6 +202,7 @@ public class SnakeController : MonoBehaviour {
 
 		bool isBend = isBendSprite(currentSegmentSpriteRenderer);
 		bool rotate = shouldRotate(head, previousHeadPosition, cur);
+
 		// Check if segment is a bend that should be straightened
 		if (isBend && !rotate) {
 			currentSegmentSpriteRenderer.sprite = _straightBodySprite;
@@ -230,7 +248,7 @@ public class SnakeController : MonoBehaviour {
 	private bool isTurningRight(Vector3 head, Vector3 headPrev) => head.x > headPrev.x && head.y == headPrev.y;
 
 	// isLeftHandTurn determines if the snake is turning left according to it's current direction (not the key
-	// press!). For example, if the snake is travelling downwards, 'left' is actually 'right'. 
+	// press!). For example, if the snake is travelling downwards, 'left' is actually 'right' .
 	private bool isLeftHandTurn(Vector3 head, Vector3 headPrev, Vector3 cur) {
 		return (wasTravellingDown(headPrev, cur) && isTurningRight(head, headPrev)) || 
 					 (wasTravellingRight(headPrev, cur) && isTurningUp(head, headPrev))   ||
@@ -251,6 +269,30 @@ public class SnakeController : MonoBehaviour {
 		} else {
 			_scoresSinceSegmentAdd++;
 		}
+	}
+
+	private void prepareTeleportHead() => _shouldTeleportHead = true;
+
+	private void teleportHead() {
+		switch (_lastKeyPressed) {
+			case KeyCode.DownArrow:
+				this.transform.Translate(0, 18.8f, 0);
+				break;
+			case KeyCode.UpArrow:
+				this.transform.Translate(0, -18.8f, 0);
+				break;
+			case KeyCode.LeftArrow:
+				this.transform.Translate(10.5f, 0, 0);
+				break;
+			case KeyCode.RightArrow:
+				this.transform.Translate(-10.5f, 0, 0);
+				break;
+			default: // No key press, probably just spawned and not moved since
+				this.transform.Translate(0, 18.8f, 0);
+				break;
+		}
+
+		_shouldTeleportHead = false;
 	}
 
 	// addBodySegment actually adds the required body segment to the snake and should be called during movement

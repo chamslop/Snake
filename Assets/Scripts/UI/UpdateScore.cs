@@ -5,17 +5,17 @@ using UnityEngine.UI;
 
 public class UpdateScore : MonoBehaviour {
 
-	private Text _text;
 	private int _score;
+	private Text _text;
 
 	void Awake() {
 		_text = GetComponent<Text>();
+
+		Managers.EventManager.OnPointScored += pointScored;
+		Managers.EventManager.OnSnakeDeath += resetScore;
 	}
 
 	void Start() {
-		Managers.EventManager.OnPointScored += pointScored;
-		Managers.EventManager.OnSnakeDeath += resetScore;
-
 		resetScore();
 	}
 
