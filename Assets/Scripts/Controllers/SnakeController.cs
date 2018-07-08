@@ -1,139 +1,136 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+
 using Managers;
 
 public class SnakeController : MonoBehaviour {
 	// Components
 	private BoxCollider2D _headCollider;
-	private Transform _spriteHead;
+	private Transform _head;
 	private GameObject _tail;
 
 	// Sprites
 	private Sprite _bendSprite;
 	private Sprite _bendInvertedSprite;
 	private Sprite _straightBodySprite;
-	private Sprite _tailSprite;
 
 	// Consts
-	private string _bendSpriteName         = "char_corner_01";
-	private string _bendInvertedSpriteName = "char_corner_02";
-	private string _straightBodySpriteName = "char_mid_01";
-	private string _tailSpriteName         = "char_tail_01";
+	private const string _bendSpriteName         = "char_corner_01";
+	private const string _bendInvertedSpriteName = "char_corner_02";
+	private const string _straightBodySpriteName = "char_mid_01";
+	private const string _tailSpriteName         = "char_tail_01";
+	private const float _startingSpeed = 0.25f;
+	private const float _assetSize = 1.28f;
 
 	// Internals
-	private float _assetSize = 1.28f;
 	private float _xDir;
 	private float _yDir;
 	private KeyCode _lastKeyPressed;
-	private float _speed = 0.2f;          // Time delay between snakeMove calls
-	private bool _addBodySegment = false; // Should we add a body part to the snake during next movement?
+	private float _speed = _startingSpeed;  // Time delay between snakeMove calls
+	private bool _addBodySegment = false;   // Should we add a body part to the snake during next movement?
+	private int _scoresSinceSegmentAdd = 0; // We only increase the body length every 3 foods
 
 	void Awake() {
 		_headCollider = GetComponent<BoxCollider2D>();
-		_spriteHead = this.transform.Find("Head Sprite");
+		_head = this.transform.Find("Head Sprite");
 		_tail = this.transform.parent.transform.Find("Tail").gameObject;
 
 		_bendSprite = Resources.Load<Sprite>(_bendSpriteName);
 		_bendInvertedSprite = Resources.Load<Sprite>(_bendInvertedSpriteName);
 		_straightBodySprite = Resources.Load<Sprite>(_straightBodySpriteName);
-		_tailSprite = Resources.Load<Sprite>(_tailSpriteName);
 	}
 
 	void Start() {
 		EventManager.OnPointScored += queueAddBodySegment;
 		EventManager.OnPointScored += speedUp;
-		EventManager.OnSnakeDeath += resetSnake;
 
 		startSnakeMovement();
 	}
 
+	// Every frame, we check for inputs so we know which the last triggered key press was.
+	// We don't actually trigger movement during the Update cycle, because we aren't using conventional
+	// Unity based physics.
 	void Update() {
-		// Every frame, check for inputs so we know which the last triggered key press was
 		KeyCode inputThisFrame = InputExtensions.GetLastDirectionalKeyPress();
 		_lastKeyPressed = inputThisFrame != KeyCode.None ? inputThisFrame : _lastKeyPressed;
 	}
 
 	// snakeMove is called recursively, at the interval of '_speed', and is responsible for moving the head,
-	// and then getting all of the body components and tail to follow in the typical snake fashion.
+	// and then getting all of the body components and tail to follow suite in the typical snake fashion.
 	private IEnumerator snakeMove() {
 		yield return new WaitForSeconds(_speed);
 
-		// Update _xDir and _yDir for translation, as well as rotate our head according to last key pressed
+		// Update _xDir and _yDir for head translation, as well as rotate our head according to last key pressed
 		calculateHeadTranslation();
 
-		// Keep a record of where the head was/it's rotate before this translate
+		// Keep a record of where the head was and it's rotate before we perform the translate
 		Vector3 leadingSegmentPreviousPosition = this.transform.position;
-		Quaternion leadingSegmentPreviousRotation = _spriteHead.transform.rotation;
+		Quaternion leadingSegmentPreviousRotation = _head.rotation;
 		Sprite leadingSegmentPreviousSprite = null;
 
 		// Translate the head according to x and y
 		this.transform.Translate(_xDir, _yDir, 0);
-		
-		// Before we move any body segments, first check for head => segment collisions
-		if (checkHeadCollision()) {
-			EventManager.HandleSnakeDeath();
-		} else {
-			// Player hasn't died, let's update body segments accordingly
-			for (var i = 1; i < this.transform.parent.childCount; i++) {
-				Transform currentSegment = this.transform.parent.GetChild(i);
 
-				// Keep a reference to our current segments position, sprite and rotation before changes
-				Vector3 currentSegmentPosition = currentSegment.position;
-				Quaternion currentSegmentRotation = currentSegment.rotation;
-				Sprite currentSegmentSprite = currentSegment.GetComponent<SpriteRenderer>().sprite;
+		// Regardless of if the player has died update body segments accordingly
+		for (var i = 1; i < this.transform.parent.childCount; i++) {
+			Transform currentSegment = this.transform.parent.GetChild(i);
 
-				// Before we move anything, let's calculate rotations and sprites
-				if (i == 1) {
-					//The second segment is key, once it is set correctly, all subsequent pieces can just copy from it
-					adjustSecondSegment(currentSegment, leadingSegmentPreviousPosition, leadingSegmentPreviousRotation);
-				} else if (i < this.transform.parent.childCount - 1) {
-					// This segment is somewhere behind the second segment. It can safely just copy both the
-					// sprite and the rotation from it's leading segment before being moved
-					currentSegment.rotation = leadingSegmentPreviousRotation;
+			// Keep a reference to our current segments position, sprite and rotation before changes
+			Vector3 currentSegmentPosition = currentSegment.position;
+			Quaternion currentSegmentRotation = currentSegment.rotation;
+			Sprite currentSegmentSprite = currentSegment.GetComponent<SpriteRenderer>().sprite;
+
+			// Before we move anything, let's calculate rotations and sprites
+			if (i == 1) {
+				//The second segment is key, once it is set correctly, all subsequent pieces can just copy from it
+				adjustSecondSegment(currentSegment, leadingSegmentPreviousPosition, leadingSegmentPreviousRotation);
+			} else if (i < this.transform.parent.childCount - 1) {
+				// This segment is somewhere behind the second segment. It can safely just copy both the
+				// sprite and the rotation from it's leading segment before being moved
+				currentSegment.rotation = leadingSegmentPreviousRotation;
+				currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
+			} else {
+				// We are at the tail. Either don't move (because a new segment is filling the space infront of us)
+				// or move forward as expected (because the player didn't gain a point this movement phase)
+				if (_addBodySegment) {
+					addBodySegment();
+
+					// Update current segment to be our newly added piece. We will update it's location to be where
+					// we expected the tail to move to
+					currentSegment = this.transform.parent.GetChild(i);
+
+					// The newly added piece might need to be a bend
 					currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
-				} else {
-					// We are at the tail. Either don't move (because a new segment is filling the space infront of us)
-					// or move forward as expected (because the player didn't gain a point this movement phase)
-					if (_addBodySegment) {
-						addBodySegment();
-
-						// Update current segment to be our newly added piece. We will update it's location to be where
-						// we expected the tail to move to
-						currentSegment = this.transform.parent.GetChild(i);
-
-						// The newly added piece might need to be a bend
-						currentSegment.GetComponent<SpriteRenderer>().sprite = leadingSegmentPreviousSprite;
-					}
-
-					currentSegment.rotation = leadingSegmentPreviousRotation;
-
-					// Now, current segment is either the tail or the newly added body piece, update it's position
 				}
 
-				// Now we update our current segment to the position of it's leading segment before it was transformed
-				currentSegment.transform.position = leadingSegmentPreviousPosition;
+				currentSegment.rotation = leadingSegmentPreviousRotation;
 
-				// Save the record of our current segments previous position/rotation for it's trailing segment to use 
-				leadingSegmentPreviousPosition = currentSegmentPosition;
-				leadingSegmentPreviousRotation = currentSegmentRotation;
-				leadingSegmentPreviousSprite = currentSegmentSprite;
+				// Now, current segment is either the tail or the newly added body piece, update it's position
 			}
-				
-			// Inform the animator of our current direction
-			// _anim.SetFloat("SnakeVelocityX", _xDir);
-			// _anim.SetFloat("SnakeVelocityY", _yDir);
 
-			// Broadcast that we have successfully moved the snake
-			Managers.EventManager.HandleSnakeMove(_headCollider.bounds);
+			// Now we update our current segment to the position of it's leading segment before it was transformed
+			currentSegment.transform.position = leadingSegmentPreviousPosition;
 
-			// Recursively call snakeMove again so we continually update
-			StartCoroutine(snakeMove());
+			// Save the record of our current segments previous position/rotation for it's trailing segment to use 
+			leadingSegmentPreviousPosition = currentSegmentPosition;
+			leadingSegmentPreviousRotation = currentSegmentRotation;
+			leadingSegmentPreviousSprite = currentSegmentSprite;
 		}
 
-		yield return null;
+		if (checkHeadCollision()) {
+			handleSnakeDeath();
+			yield return null;
+		} else {
+			// Broadcast that we have successfully moved the snake
+			Managers.EventManager.BroadcastSnakeMove(_headCollider.bounds);
+
+			// Recursively call snakeMove again
+			StartCoroutine(snakeMove());
+		}
 	}
 
 	// calculateHeadTranslation checks  our last key press was valid (i.e not a 180deg turn), 
@@ -143,19 +140,19 @@ public class SnakeController : MonoBehaviour {
 	// We also want to rotate the head at this point.
 	private void calculateHeadTranslation() {
 		if (_lastKeyPressed == KeyCode.UpArrow && _yDir == 0) {
-			_spriteHead.rotation = new Quaternion(0, 0, 180, 0);
+			_head.rotation = new Quaternion(0, 0, 180, 0);
 			_yDir = _assetSize;
 			_xDir = 0;
 		} else if (_lastKeyPressed == KeyCode.DownArrow && _yDir == 0) {
-			_spriteHead.rotation = new Quaternion(0, 0, 0, 0);
+			_head.rotation = new Quaternion(0, 0, 0, 0);
 			_yDir = -_assetSize;
 			_xDir = 0;
 		} else if (_lastKeyPressed == KeyCode.RightArrow && _xDir == 0) {
-			_spriteHead.Rotate(0, 0, (int) _yDir * -90f, Space.Self);
+			_head.Rotate(0, 0, (int) _yDir * -90f, Space.Self);
 			_xDir = _assetSize;
 			_yDir = 0;
 		} else if (_lastKeyPressed == KeyCode.LeftArrow && _xDir == 0) {
-			_spriteHead.Rotate(0, 0, (int) _yDir * 90f, Space.Self);
+			_head.Rotate(0, 0, (int) _yDir * 90f, Space.Self);
 			_xDir = -_assetSize;
 			_yDir = 0;
 		} else {
@@ -245,10 +242,15 @@ public class SnakeController : MonoBehaviour {
 	private bool isInvertedBendSprite(SpriteRenderer sr) => sr.sprite.name == _bendInvertedSpriteName;
 	private bool isBendSprite(SpriteRenderer sr) => sr.sprite.name == _bendSpriteName || isInvertedBendSprite(sr);
 
-	// queueAddBodySegment sets us up to add a body segment to the snake during the next movement phase.
-	// We can't do it outside of movement or the additional piece will be janky.
+	// queueAddBodySegment sets us up to add a body segment to the snake during the next movement phase, but
+	// only when we have eaten 3 pieces of food. We add the piece outside of movement or it look janky.
 	private void queueAddBodySegment() {
-		_addBodySegment = true;
+		if (_scoresSinceSegmentAdd == 3) {
+			_addBodySegment = true;
+			_scoresSinceSegmentAdd = 0;
+		} else {
+			_scoresSinceSegmentAdd++;
+		}
 	}
 
 	// addBodySegment actually adds the required body segment to the snake and should be called during movement
@@ -265,18 +267,49 @@ public class SnakeController : MonoBehaviour {
 		_addBodySegment = false;
 	}
 
-	private void resetSnake() {
+	private void handleSnakeDeath() {
 		StartCoroutine(waitAndTriggerRespawn());
-		Destroy(this.transform.parent.gameObject);
 	}
 
 	private IEnumerator waitAndTriggerRespawn() {
 		yield return new WaitForSeconds(5f);
+
+		resetSnake();
+		_speed = _startingSpeed;
+		_addBodySegment = false;
+		_scoresSinceSegmentAdd = 0;
+		_lastKeyPressed = KeyCode.DownArrow;
+
+		EventManager.BroadcastSnakeDeath();
+		yield return new WaitForSeconds(1f);
+
+		startSnakeMovement();
+
 		yield return null;
 	}
 	
+	private void resetSnake() {
+		this.transform.position = new Vector3(0, 0, 0);
+		_head.rotation = new Quaternion(0, 0, 0, 0);
+
+		Transform secondSegment = this.transform.parent.GetChild(1);
+		secondSegment.position = new Vector3(0, _assetSize, 0);
+		secondSegment.rotation = new Quaternion(0, 0, 0, 0);
+		secondSegment.GetComponent<SpriteRenderer>().sprite = _straightBodySprite;
+
+		List<Transform> childrenToDelete = new List<Transform>();
+		for (var i = 2; i < this.transform.parent.childCount - 1; i++) {
+			childrenToDelete.Add(this.transform.parent.GetChild(i).transform);
+		}
+
+		childrenToDelete.ForEach(x => { x.parent = null; Destroy(x.gameObject); });
+
+		_tail.transform.position = new Vector3(0, _assetSize * 2, 0);
+		_tail.transform.rotation = new Quaternion(0, 0, 0, 0);
+	}
+
 	// speedUp reduces the time between movement updates, giving the illusion the snake is speeding up.
-	private void speedUp() => _speed -= (_speed/30);
+	private void speedUp() => _speed -= (_speed/60);
 
 	private void startSnakeMovement() {
 		_yDir = -_assetSize;
@@ -284,4 +317,3 @@ public class SnakeController : MonoBehaviour {
 		StartCoroutine(snakeMove());
 	}
 }
-

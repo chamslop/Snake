@@ -22,7 +22,7 @@ public class Food : MonoBehaviour {
 
 	void checkCollision(Bounds b) {
 		if (_col.bounds.Intersects(b)) {
-			Managers.EventManager.HandlePointScored();
+			Managers.EventManager.BroadcastPointScored();
 			repositionAwayFromSnake();
 		}
 	}
