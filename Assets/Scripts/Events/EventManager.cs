@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Managers {
 
   // EventManager is the static class to which event delegates are bound and delegate handlers are called.
-  // A GameObject can register a delegate to be handled inside Start/constructor and should 
+  // A GameObject can register a delegate to be handled inside Awake/constructor and should 
   // deregister any delegates inside OnDestroy/deconstructor to prevent memory leaks.
   public static class EventManager {
 
@@ -22,6 +22,7 @@ namespace Managers {
     public delegate void PointScore();
     public static event PointScore OnPointScored;
     public static void BroadcastPointScored() => OnPointScored?.Invoke();
+    
   }
 
 }

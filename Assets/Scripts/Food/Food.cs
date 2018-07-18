@@ -30,8 +30,15 @@ public class Food : MonoBehaviour {
 	private void repositionAwayFromSnake() {
 		while(true) {
 			Vector3 newPosition = Vector3Extensions.Random(-5, 5);
-			if (Vector2.Distance(newPosition, this.transform.position) < 5.5f) continue;
-			this.transform.position = newPosition;
+			if (Vector2.Distance(newPosition, transform.position) < 5.5f) continue;
+			if (((uint) newPosition.x + (uint) transform.position.x) < -4.5 || 
+				((uint) newPosition.x + (uint) transform.position.x) > 4.5 || 
+				((uint) newPosition.y + (uint) transform.position.y) < -4.5 || 
+				((uint) newPosition.y + (uint) transform.position.y) > 4.5) {
+					continue;
+			}
+
+			transform.position = newPosition;
 			return;
 		}
 	}

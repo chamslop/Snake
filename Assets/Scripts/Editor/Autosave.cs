@@ -1,7 +1,7 @@
 #if UNITY_EDITOR
-using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine;
 
 [InitializeOnLoad]
 public class AutosaveOnRun : ScriptableObject {

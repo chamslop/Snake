@@ -1,11 +1,9 @@
-﻿using System.Collections;
+﻿using Managers;
+using System.Collections;
 using System.Collections.Generic;
-
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
-
-using Managers;
 
 public class SnakeController : MonoBehaviour {
 	// Components
@@ -49,12 +47,10 @@ public class SnakeController : MonoBehaviour {
 		EventManager.OnPointScored += queueAddBodySegment;
 		EventManager.OnPointScored += speedUp;
 		EventManager.OnSnakeHeadInvisible += prepareTeleportHead;
-	}
 
-	void Start() {
-		startSnakeMovement();
+		UIEventManager.OnStartGame += startSnakeMovement;
 	}
-
+	
 	// Every frame, we check for inputs so we know which the last triggered key press was.
 	// We don't actually trigger movement during the Update cycle, because we aren't using conventional
 	// Unity based physics.
@@ -122,8 +118,6 @@ public class SnakeController : MonoBehaviour {
 				}
 
 				currentSegment.rotation = leadingSegmentPreviousRotation;
-
-				// Now, current segment is either the tail or the newly added body piece, update it's position
 			}
 
 			// Now we update our current segment to the position of it's leading segment before it was transformed
@@ -319,13 +313,11 @@ public class SnakeController : MonoBehaviour {
 		resetSnake();
 		_speed = _startingSpeed;
 		_addBodySegment = false;
+		_shouldTeleportHead = false;
 		_scoresSinceSegmentAdd = 0;
 		_lastKeyPressed = KeyCode.DownArrow;
 
 		EventManager.BroadcastSnakeDeath();
-		yield return new WaitForSeconds(1f);
-
-		startSnakeMovement();
 
 		yield return null;
 	}

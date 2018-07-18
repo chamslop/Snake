@@ -9,5 +9,3 @@ public static class Vector3Extensions {
   }
 
 }
-
-
